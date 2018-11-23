@@ -1,0 +1,186 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "RAD"
+date: "November 23, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+## Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+In this project, the goal is to use data to predict the manner in which they did the exercise. This is the * "classe" * variable in the training set which is a factor variable with 5 levels. The participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in 5 different fashions:
+
+- exactly according to the specification (Class A)
+- throwing the elbows to the front (Class B)
+- lifting the dumbbell only halfway (Class C)
+- lowering the dumbbell only halfway (Class D)
+- throwing the hips to the front (Class E)
+
+
+#### What model to choose
+
+Prediction evaluations will be based on maximizing the accuracy and minimizing the out-of-sample error. In this analysis, models will be tested using decision tree and random forest algorithms. The final model will be the model with the highest accuracy.
+
+#### Cross-validation
+
+The models will be fitted on the subset of Training data set, which consist of about 70% of the original Training dataset. These fitted models will then be tested on the remaining 30% of the Training dataset. After choosing the model with the highest accuracy, this model will then be tested on the original Testing dataset.
+
+#### Out of Sample Error
+The expected  will correspond to the expected number of missclassified observations/total observations in the Test data set, which is the quantity: 1-accuracy found from the cross-validation data set.
+
+## Results
+
+#### Loading Packages
+```{r}
+library(knitr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(gbm)
+set.seed(1995)
+```
+
+
+#### Reading and Cleaning Data 
+```{r,echo=FALSE}
+TrainUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+TestUrl  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+Train<-"pml-traininig.csv"
+Test<-"pml-testing.csv"
+
+# download the datasets
+if(!file.exists(Train))
+{
+    download.file(TrainUrl,destfile = Train)
+}
+Training <- read.csv(Train)
+
+if(!file.exists(Test))
+{
+    download.file(TestUrl,destfile = Test)
+}
+Testing  <- read.csv(Test)
+
+# removing NAs
+Training <- Training[, colSums(is.na(Training)) == 0] 
+Testing <- Testing[, colSums(is.na(Testing)) == 0] 
+classe <- Training$classe
+TrainingR <- grepl("^X|timestamp|window", names(Training))
+Training <- Training[, !TrainingR]
+TrainingM <- Training[, sapply(Training, is.numeric)]
+TrainingM$classe <- classe
+TestingR <- grepl("^X|timestamp|window", names(Testing))
+Testing<- Testing[, !TestingR]
+TestingM <- Testing[, sapply(Testing, is.numeric)]
+
+```
+
+
+After cleaning the data, the Training dataset now contains 53 variables and 19662 observations while the Testing dataset now contains 53 variables and 20 observations.
+
+```{r}
+dim(TrainingM)
+dim(TestingM)
+```
+#### Partitioning Data
+To perform cross-validation, the original Training dataset is divided into 2 subsets: the Training-subset (as mentionaed earlier, it comprises of 70% of the original Training dataset) and Testing-subset (remaining 30% of the Training dataset). Random sampling was done without replacement.
+
+```{r}
+library(caret)
+set.seed(1995) 
+subTraining <- createDataPartition(TrainingM$classe, p=0.70, list=F)
+subTraining_data <- TrainingM[subTraining, ]
+subTesting_data <- TrainingM[-subTraining, ]
+```
+
+### Model Building
+
+Three popular methods will be applied to model the regressions (in the original Train dataset) and the best one (with higher accuracy) will be used for the quiz predictions. The methods are: Decision Tree, Random Forests and Generalized Boosted Model.
+
+#### Decision Tree
+
+```{r}
+Model1 <- rpart(classe ~ ., data=subTraining_data, method="class")
+
+# Prediction
+prediction1 <- predict(Model1, subTesting_data, type = "class")
+
+# Plot of the Decision Tree
+rpart.plot(Model1, main="Classification Tree", extra=102, under=TRUE, faclen=0)
+
+# Test results on the Testing-subset data set:
+confusionMatrix(prediction1, subTesting_data$classe)
+```
+
+The accuracy of the model is 69.24% and the estimated out-of-sample error is 24.28%.
+
+
+#### Random Forest
+
+```{r}
+Model2 <- randomForest(classe ~. , data=subTraining_data, method="class")
+
+# Prediction
+prediction2 <- predict(Model2,subTesting_data, type = "class")
+
+# Test results on the Testing-subset dataset:
+confusionMatrix(prediction2, data=subTesting_data$classe)
+
+```
+
+The accuracy of the model is 99.52% and the estimated out-of-sample error is 0.48%.
+
+#### Generalized Boosted Model (GBM)
+
+```{r}
+GBM <- trainControl(method = "repeatedcv", number = 5,repeats = 1)
+Model3  <- train(classe ~ ., data=subTraining_data,method = "gbm",trControl = GBM, verbose = FALSE)
+
+# Prediction
+prediction3 <- predict(Model3,newdata=subTesting_data)
+
+# Test results on the Testing-subset dataset:
+confusionMatrix(prediction3, data=subTesting_data$classe)
+
+```
+
+The accuracy of the model is 96.50% and the estimated out-of-sample error is 3.50%.
+
+### The Final Model
+
+The accuracy of the 3 modeling methods above are:
+
+Decision Tree: 0.6924
+Random Forest: 0.9952
+GBM: 0.9650
+
+Thus, the Random Forest model will be applied to predict the 20 observations in the original Testing dataset.
+
+```{r}
+predictTEST <- predict(Model2, newdata=TestingM)
+predictTEST
+```
+
+
+
+
+
+
